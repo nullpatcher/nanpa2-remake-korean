@@ -15,9 +15,35 @@ $ErrorActionPreference = "Stop"
 $Version = "v1.0"
 $InstallDir = $PSScriptRoot
 $GamePathFile = Join-Path $InstallDir "game_path.txt"
-$XdeltaExe = Join-Path $InstallDir "tools\xdelta3.exe"
+$PatFile = Join-Path $InstallDir "nanpa2_remake_k_v1.pat"
+$PayloadDir = $null
+$TempZip = $null
+$XdeltaExe = $null
 
 $DefaultGamePath = "D:\Games\FGRemake\nanpa2_re"
+
+function Expand-PatchPayload {
+    # nanpa2_remake_k_v1.pat은 실제로는 zip 파일이다(확장자만 다름).
+    # 실제 패치에 필요한 diffs/tools/patch_data.ps1/patch_exe.ps1이 여기 들어있다.
+    if (-not (Test-Path $PatFile)) {
+        throw "패치 데이터 파일을 찾을 수 없습니다: $PatFile"
+    }
+    $token = [guid]::NewGuid().ToString("N").Substring(0, 8)
+    $script:TempZip = Join-Path $env:TEMP "nanpa2_patch_$token.zip"
+    $script:PayloadDir = Join-Path $env:TEMP "nanpa2_patch_$token"
+    Copy-Item -Path $PatFile -Destination $script:TempZip -Force
+    New-Item -ItemType Directory -Force -Path $script:PayloadDir | Out-Null
+    Expand-Archive -Path $script:TempZip -DestinationPath $script:PayloadDir -Force
+}
+
+function Remove-PatchPayload {
+    if ($script:TempZip -and (Test-Path $script:TempZip)) {
+        Remove-Item -Path $script:TempZip -Force -ErrorAction SilentlyContinue
+    }
+    if ($script:PayloadDir -and (Test-Path $script:PayloadDir)) {
+        Remove-Item -Path $script:PayloadDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 
 function Test-GameDir($path) {
     return ($path -and (Test-Path $path) -and (Test-Path (Join-Path $path "nanpa2_re.exe")))
@@ -83,7 +109,7 @@ function Backup-Original($GamePath, $relName) {
 function Invoke-ArcPatch($GamePath, $relName, $diffRelPath) {
     Write-Host "  $relName 패치 중... (용량이 커서 시간이 걸릴 수 있습니다)"
     $paths = Backup-Original $GamePath $relName
-    $diffFile = Join-Path $InstallDir $diffRelPath
+    $diffFile = Join-Path $PayloadDir $diffRelPath
     $tempOut = Join-Path $env:TEMP "$relName.patching"
 
     # 항상 backup(원본)을 기준으로 diff를 적용한다 -- 이전 버전 패치가 이미
@@ -143,6 +169,11 @@ try {
     }
     Write-Host ""
 
+    Write-Host "패치 데이터 압축 해제 중..."
+    Expand-PatchPayload
+    $XdeltaExe = Join-Path $PayloadDir "tools\xdelta3.exe"
+    Write-Host ""
+
     Write-Host "[1/3] 대사(script.arc) 패치"
     Invoke-ArcPatch $GamePath "script.arc" "diffs\script.arc.vcdiff"
     Write-Host ""
@@ -161,7 +192,7 @@ try {
         throw "nanpa2_k.exe를 만들 수 없습니다 (파일이 사용 중일 수 있습니다). 게임을 완전히 종료한 뒤 다시 시도해주세요."
     }
 
-    . (Join-Path $InstallDir "patch_exe.ps1")
+    . (Join-Path $PayloadDir "patch_exe.ps1")
     $count = Invoke-ExePatch -TargetPath $patchedExe
     Write-Host "  nanpa2_k.exe 생성 완료 ($count 개 패치 적용)"
     Write-Host ""
@@ -178,5 +209,6 @@ try {
     Write-Host ""
     Write-Host "오류가 발생했습니다: $_" -ForegroundColor Red
 } finally {
+    Remove-PatchPayload
     Wait-ForKeyPress
 }
