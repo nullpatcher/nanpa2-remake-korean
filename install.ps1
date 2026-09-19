@@ -1,5 +1,5 @@
 ﻿<#
-    동급생2 리메이크 한글패치 v1.0 설치 프로그램
+    동급생2 리메이크 한글패치 v1.2 설치 프로그램
 
     원본 게임 파일(nanpa2_re.exe, script.arc, layer.arc)은 전혀 수정하지 않습니다.
     - script.arc / layer.arc: 원본을 game folder\backup\ 에 백업해두고, 패치를
@@ -12,7 +12,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "v1.0"
+$Version = "v1.2"
 $InstallDir = $PSScriptRoot
 $GamePathFile = Join-Path $InstallDir "game_path.txt"
 $PatFile = Join-Path $InstallDir "nanpa2_remake_k_v1.pat"
@@ -21,6 +21,14 @@ $TempZip = $null
 $XdeltaExe = $null
 
 $DefaultGamePath = "D:\Games\FGRemake\nanpa2_re"
+
+# 게임 버전은 "순정 script.arc의 SHA256"으로 판별한다(v1.0.0과 v1.0.2는 대사 스크립트가
+# 서로 다름). 해시 -> 그 버전용 diff 파일(패치 데이터 안의 diffs\). 유통 채널(DL/DPG/PKG)이나
+# 크랙 여부와 상관없이 script.arc만 순정이면 판별된다. layer.arc는 두 버전이 같다고 본다.
+$ScriptDiffByHash = @{
+    "9f976fab1a49354ce826fcd322d27254a24151c76b2d71f600237ec1ae0c4dfe" = @{ Game = "v1.0.0"; Diff = "diffs\script.arc.vcdiff" }
+    "bc0c5fab00951b7d136c6138447bca6600b24da3552d6d701a18d141dfbb403f" = @{ Game = "v1.0.2"; Diff = "diffs\script.arc.v102.vcdiff" }
+}
 
 function Expand-PatchPayload {
     # nanpa2_remake_k_v1.pat은 실제로는 zip 파일이다(확장자만 다름).
@@ -85,6 +93,28 @@ function Find-GamePath {
     return $null
 }
 
+function Get-Sha256Lower($path) {
+    return (Get-FileHash -Path $path -Algorithm SHA256).Hash.ToLower()
+}
+
+function Update-PristineBackup($GamePath, $relName) {
+    # 게임 폴더의 script.arc가 알려진 "순정" 파일이면(예: 패치 설치 후 공식 업데이트로 게임을
+    # 1.0.2로 올려서 순정 파일로 덮어써진 경우) 그게 지금 게임 버전의 진짜 원본이므로 backup을
+    # 그걸로 갱신한다. 이미 패치된 파일이면(해시가 순정과 다름) 기존 backup을 그대로 쓴다.
+    $target = Join-Path $GamePath $relName
+    if (-not (Test-Path $target)) { return }
+    $hash = Get-Sha256Lower $target
+    if (-not $ScriptDiffByHash.ContainsKey($hash)) { return }
+    $backupDir = Join-Path $GamePath "backup"
+    $backupTarget = Join-Path $backupDir $relName
+    if (Test-Path $backupTarget) {
+        if ((Get-Sha256Lower $backupTarget) -eq $hash) { return }
+        Write-Host "  게임 파일이 순정 $($ScriptDiffByHash[$hash].Game) 로 바뀐 것을 감지했습니다 -- 원본 백업을 갱신합니다."
+    }
+    if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Force -Path $backupDir | Out-Null }
+    Copy-Item -Path $target -Destination $backupTarget -Force
+}
+
 function Backup-Original($GamePath, $relName) {
     # backup\<file>은 항상 "패치를 한 번도 안 댄 순수 원본"이어야 한다 -- 이후 버전
     # 업그레이드 때 diff를 이 원본 기준으로 다시 적용하기 위한 고정점이다. 이미
@@ -110,18 +140,23 @@ function Invoke-ArcPatch($GamePath, $relName, $diffRelPath) {
     Write-Host "  $relName 패치 중... (용량이 커서 시간이 걸릴 수 있습니다)"
     $paths = Backup-Original $GamePath $relName
     $diffFile = Join-Path $PayloadDir $diffRelPath
-    $tempOut = Join-Path $env:TEMP "$relName.patching"
+    # 임시 출력은 게임 폴더 옆(같은 드라이브)에 만든다 -- layer.arc는 3.5GB라 %TEMP%(보통 C:)에
+    # 두면 C: 여유 공간이 모자라 실패할 수 있고, 같은 드라이브면 마지막 교체도 이름만 바꾸는 거라 빠르다.
+    $tempOut = "$($paths.Target).patching"
 
     # 항상 backup(원본)을 기준으로 diff를 적용한다 -- 이전 버전 패치가 이미
     # 설치돼 있어도(게임 폴더의 파일 자체는 원본이 아닐 수 있음) 상관없이,
     # 새 인스톨러를 그냥 다시 실행하기만 하면 버전 업그레이드가 된다
     # (언인스톨 후 재설치할 필요 없음).
-    & $XdeltaExe -f -d -s $paths.Backup $diffFile $tempOut
-    if ($LASTEXITCODE -ne 0) {
-        throw "$relName 패치에 실패했습니다 (xdelta3 종료 코드 $LASTEXITCODE). 게임 파일이 원본과 다를 수 있습니다."
+    try {
+        & $XdeltaExe -f -d -s $paths.Backup $diffFile $tempOut
+        if ($LASTEXITCODE -ne 0) {
+            throw "$relName 패치에 실패했습니다 (xdelta3 종료 코드 $LASTEXITCODE). 디스크 여유 공간이 부족하거나 게임 파일이 원본과 다를 수 있습니다."
+        }
+        Move-Item -Path $tempOut -Destination $paths.Target -Force
+    } finally {
+        if (Test-Path $tempOut) { Remove-Item -Path $tempOut -Force -ErrorAction SilentlyContinue }
     }
-
-    Move-Item -Path $tempOut -Destination $paths.Target -Force
     Write-Host "  $relName 패치 완료"
 }
 
@@ -174,8 +209,23 @@ try {
     $XdeltaExe = Join-Path $PayloadDir "tools\xdelta3.exe"
     Write-Host ""
 
+    # 파일을 하나라도 바꾸기 전에, 이 게임의 exe와 script.arc가 지원 버전인지 먼저 확인한다.
+    Write-Host "게임 버전 확인 중..."
+    . (Join-Path $PayloadDir "patch_exe.ps1")
+    $null = Invoke-ExePatch -TargetPath (Join-Path $GamePath "nanpa2_re.exe") -DetectOnly
+
+    Update-PristineBackup $GamePath "script.arc"
+    $scriptBackup = (Backup-Original $GamePath "script.arc").Backup
+    $scriptHash = Get-Sha256Lower $scriptBackup
+    if (-not $ScriptDiffByHash.ContainsKey($scriptHash)) {
+        throw "지원하지 않는 게임 버전입니다 (script.arc가 알려진 순정 v1.0.0/v1.0.2 파일이 아닙니다). 게임을 공식 v1.0.0 또는 v1.0.2로 되돌린 뒤 다시 시도해주세요."
+    }
+    $scriptInfo = $ScriptDiffByHash[$scriptHash]
+    Write-Host "  감지된 게임 대사 버전: $($scriptInfo.Game)"
+    Write-Host ""
+
     Write-Host "[1/3] 대사(script.arc) 패치"
-    Invoke-ArcPatch $GamePath "script.arc" "diffs\script.arc.vcdiff"
+    Invoke-ArcPatch $GamePath "script.arc" $scriptInfo.Diff
     Write-Host ""
 
     Write-Host "[2/3] 이미지 속 텍스트(layer.arc) 패치"
@@ -192,7 +242,6 @@ try {
         throw "nanpa2_k.exe를 만들 수 없습니다 (파일이 사용 중일 수 있습니다). 게임을 완전히 종료한 뒤 다시 시도해주세요."
     }
 
-    . (Join-Path $PayloadDir "patch_exe.ps1")
     $count = Invoke-ExePatch -TargetPath $patchedExe
     Write-Host "  nanpa2_k.exe 생성 완료 ($count 개 패치 적용)"
     Write-Host ""
