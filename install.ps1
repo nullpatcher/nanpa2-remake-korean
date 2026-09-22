@@ -1,5 +1,5 @@
 ﻿<#
-    동급생2 리메이크 한글패치 v1.2 설치 프로그램
+    동급생2 리메이크 한글패치 v1.3 설치 프로그램
 
     원본 게임 파일(nanpa2_re.exe, script.arc, layer.arc)은 전혀 수정하지 않습니다.
     - script.arc / layer.arc: 원본을 game folder\backup\ 에 백업해두고, 패치를
@@ -12,7 +12,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "v1.2"
+$Version = "v1.3"
 $InstallDir = $PSScriptRoot
 $GamePathFile = Join-Path $InstallDir "game_path.txt"
 $PatFile = Join-Path $InstallDir "nanpa2_remake_k_v1.pat"
@@ -227,6 +227,22 @@ try {
     Write-Host "[1/3] 대사(script.arc) 패치"
     Invoke-ArcPatch $GamePath "script.arc" $scriptInfo.Diff
     Write-Host ""
+
+    # PKG판 v1.0.2는 script.arc를 안 바꾸고 update.arc라는 증분 파일을 게임 폴더에
+    # 추가로 놓는 방식으로 업데이트한다(2026-09-22 확인) -- 게임 실행 시 이 안의
+    # 몇몇 파일로 script.arc의 해당 파일을 덮어써서 읽는다. 그래서 이 파일이 있으면
+    # (없는 게 보통) 따로 감지해서 같이 패치한다. 실패해도 대사/레이어/exe 패치는
+    # 이미 끝난 상태라 설치 자체를 중단시키지 않는다.
+    $updateArcPath = Join-Path $GamePath "update.arc"
+    if (Test-Path $updateArcPath) {
+        Write-Host "[+] 추가 업데이트 파일(update.arc) 패치"
+        try {
+            Invoke-ArcPatch $GamePath "update.arc" "diffs\update.arc.vcdiff"
+        } catch {
+            Write-Warning "update.arc 패치를 건너뜁니다: $_"
+        }
+        Write-Host ""
+    }
 
     Write-Host "[2/3] 이미지 속 텍스트(layer.arc) 패치"
     Invoke-ArcPatch $GamePath "layer.arc" "diffs\layer.arc.vcdiff"
