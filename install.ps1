@@ -224,51 +224,87 @@ try {
     Write-Host "  감지된 게임 대사 버전: $($scriptInfo.Game)"
     Write-Host ""
 
+    # 이 아래부터는 각 단계가 서로 독립적이다 -- 하나가 실패해도(예: 어떤
+    # 사용자의 layer.arc가 우리가 기준으로 삼은 순정 원본과 실제로 달라서
+    # 패치가 거부되는 경우) 이미 끝난 단계를 되돌리지 않고, 나머지 단계를
+    # 계속 시도한 뒤 마지막에 뭐가 되고 안 됐는지 요약해서 보여준다.
+    # (예전엔 하나라도 실패하면 그 자리에서 전부 중단돼서, 대사는 이미 한글로
+    # 바뀌었는데 정작 실행 파일은 만들어지지도 않는 경우가 있었다.)
+    $results = [ordered]@{}
+
     Write-Host "[1/3] 대사(script.arc) 패치"
-    Invoke-ArcPatch $GamePath "script.arc" $scriptInfo.Diff
+    try {
+        Invoke-ArcPatch $GamePath "script.arc" $scriptInfo.Diff
+        $results["대사(script.arc)"] = "완료"
+    } catch {
+        $results["대사(script.arc)"] = "실패: $_"
+        Write-Warning "script.arc 패치 실패, 나머지 단계는 계속 진행합니다: $_"
+    }
     Write-Host ""
 
     # PKG판 v1.0.2는 script.arc를 안 바꾸고 update.arc라는 증분 파일을 게임 폴더에
     # 추가로 놓는 방식으로 업데이트한다(2026-09-22 확인) -- 게임 실행 시 이 안의
     # 몇몇 파일로 script.arc의 해당 파일을 덮어써서 읽는다. 그래서 이 파일이 있으면
-    # (없는 게 보통) 따로 감지해서 같이 패치한다. 실패해도 대사/레이어/exe 패치는
-    # 이미 끝난 상태라 설치 자체를 중단시키지 않는다.
+    # (없는 게 보통) 따로 감지해서 같이 패치한다.
     $updateArcPath = Join-Path $GamePath "update.arc"
     if (Test-Path $updateArcPath) {
         Write-Host "[+] 추가 업데이트 파일(update.arc) 패치"
         try {
             Invoke-ArcPatch $GamePath "update.arc" "diffs\update.arc.vcdiff"
+            $results["추가 업데이트(update.arc)"] = "완료"
         } catch {
-            Write-Warning "update.arc 패치를 건너뜁니다: $_"
+            $results["추가 업데이트(update.arc)"] = "실패: $_"
+            Write-Warning "update.arc 패치 실패, 나머지 단계는 계속 진행합니다: $_"
         }
         Write-Host ""
     }
 
     Write-Host "[2/3] 이미지 속 텍스트(layer.arc) 패치"
-    Invoke-ArcPatch $GamePath "layer.arc" "diffs\layer.arc.vcdiff"
+    try {
+        Invoke-ArcPatch $GamePath "layer.arc" "diffs\layer.arc.vcdiff"
+        $results["레이어(layer.arc)"] = "완료"
+    } catch {
+        $results["레이어(layer.arc)"] = "실패: $_"
+        Write-Warning "layer.arc 패치 실패, 나머지 단계는 계속 진행합니다: $_"
+    }
     Write-Host ""
 
     Write-Host "[3/3] 실행 파일(nanpa2_k.exe) 생성"
-    $sourceExe = Join-Path $GamePath "nanpa2_re.exe"
-    $patchedExe = Join-Path $GamePath "nanpa2_k.exe"
-
     try {
-        Copy-Item -Path $sourceExe -Destination $patchedExe -Force
+        $sourceExe = Join-Path $GamePath "nanpa2_re.exe"
+        $patchedExe = Join-Path $GamePath "nanpa2_k.exe"
+        try {
+            Copy-Item -Path $sourceExe -Destination $patchedExe -Force
+        } catch {
+            throw "nanpa2_k.exe를 만들 수 없습니다 (파일이 사용 중일 수 있습니다). 게임을 완전히 종료한 뒤 다시 시도해주세요."
+        }
+        $count = Invoke-ExePatch -TargetPath $patchedExe
+        Write-Host "  nanpa2_k.exe 생성 완료 ($count 개 패치 적용)"
+        $results["실행 파일(nanpa2_k.exe)"] = "완료"
     } catch {
-        throw "nanpa2_k.exe를 만들 수 없습니다 (파일이 사용 중일 수 있습니다). 게임을 완전히 종료한 뒤 다시 시도해주세요."
+        $results["실행 파일(nanpa2_k.exe)"] = "실패: $_"
+        Write-Warning "nanpa2_k.exe 생성 실패: $_"
     }
-
-    $count = Invoke-ExePatch -TargetPath $patchedExe
-    Write-Host "  nanpa2_k.exe 생성 완료 ($count 개 패치 적용)"
     Write-Host ""
 
     Set-Content -Path $VersionFile -Value $Version -NoNewline
 
     Write-Host "==============================================="
-    Write-Host " 설치 완료!"
+    Write-Host " 설치 결과"
     Write-Host "==============================================="
-    Write-Host " 게임은 nanpa2_k.exe로 실행해주세요."
-    Write-Host " (nanpa2_re.exe는 원본 그대로 남아있습니다)"
+    foreach ($k in $results.Keys) {
+        Write-Host " $k : $($results[$k])"
+    }
+    Write-Host ""
+    if ($results["실행 파일(nanpa2_k.exe)"] -eq "완료") {
+        Write-Host " 게임은 nanpa2_k.exe로 실행해주세요."
+        Write-Host " (nanpa2_re.exe는 원본 그대로 남아있습니다)"
+        if ($results.Values -contains "완료" -and ($results.GetEnumerator() | Where-Object { $_.Value -ne "완료" })) {
+            Write-Host " 일부 항목이 실패했습니다 -- 위 목록에서 실패 사유를 확인해주세요."
+        }
+    } else {
+        Write-Host " 실행 파일 생성에 실패해서 아직 플레이할 수 없습니다. 위 실패 사유를 확인해주세요."
+    }
     Write-Host " 되돌리려면 uninstall.ps1을 실행하세요."
 } catch {
     Write-Host ""
