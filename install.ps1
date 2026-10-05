@@ -1,5 +1,5 @@
 ﻿<#
-    동급생2 리메이크 한글패치 v1.3 설치 프로그램
+    동급생2 리메이크 한글패치 v1.4 설치 프로그램
 
     원본 게임 파일(nanpa2_re.exe, script.arc, layer.arc)은 전혀 수정하지 않습니다.
     - script.arc / layer.arc: 원본을 game folder\backup\ 에 백업해두고, 패치를
@@ -12,7 +12,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "v1.3"
+$Version = "v1.4"
 $InstallDir = $PSScriptRoot
 $GamePathFile = Join-Path $InstallDir "game_path.txt"
 $PatFile = Join-Path $InstallDir "nanpa2_remake_k_v1.pat"

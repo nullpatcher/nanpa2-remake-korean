@@ -1,5 +1,5 @@
 ﻿<#
-    동급생2 리메이크 한글패치 v1.3 제거 프로그램
+    동급생2 리메이크 한글패치 v1.4 제거 프로그램
 
     install.ps1이 설치한 것(script.arc, layer.arc, nanpa2_k.exe)을 되돌립니다.
     game folder\backup\ 에 저장된 원본으로 script.arc / layer.arc를 복원하고,
@@ -67,7 +67,7 @@ function Wait-ForKeyPress {
 
 try {
     Write-Host "==============================================="
-    Write-Host " 동급생2 리메이크 한글패치 v1.3 제거 프로그램"
+    Write-Host " 동급생2 리메이크 한글패치 v1.4 제거 프로그램"
     Write-Host "==============================================="
     Write-Host ""
 
