@@ -23,7 +23,7 @@ $XdeltaExe = $null
 $DefaultGamePath = "D:\Games\FGRemake\nanpa2_re"
 
 # 게임 버전은 "순정 script.arc의 SHA256"으로 판별한다(v1.0.0과 v1.0.2는 대사 스크립트가
-# 서로 다름). 해시 -> 그 버전용 diff 파일(패치 데이터 안의 diffs\). 유통 채널(DL/DPG/PKG)이나
+# 서로 다름). 해시 -> 그 버전용 diff 파일(패치 데이터 안의 diffs\). 유통 채널(DL/PKG 등)이나
 # 크랙 여부와 상관없이 script.arc만 순정이면 판별된다. layer.arc는 두 버전이 같다고 본다.
 $ScriptDiffByHash = @{
     "9f976fab1a49354ce826fcd322d27254a24151c76b2d71f600237ec1ae0c4dfe" = @{ Game = "v1.0.0"; Diff = "diffs\script.arc.vcdiff" }
